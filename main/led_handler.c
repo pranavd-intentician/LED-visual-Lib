@@ -25,7 +25,7 @@ led_config_t led_strip_config = {
     .green = 0,
     .blue = 0,
     .intensity = 255,
-    .speed_ms = 100,
+    .speed_ms = 500,
     .duration_ms = 1000,
     .pattern = 0
 };
@@ -171,7 +171,7 @@ void animate_pattern(const led_config_t *cfg) {
             break;
             
         case LED_PATTERN_BLINK: // Use LED_PATTERN_BLINK instead of 1
-            pattern_id = led_pattern_blink(led_controller, 0, 0, LED_STRIP_LENGTH - 1, 
+            pattern_id = led_pattern_blink(led_controller, 3, 0, LED_STRIP_LENGTH - 1, 
                                          color, cfg->speed_ms, cfg->speed_ms, 
                                          cfg->duration_ms / (cfg->speed_ms * 2));
             break;
