@@ -272,10 +272,21 @@ static void apply_pulse_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t ti
 static void apply_shift_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t time) {
     ShiftParams* params = (ShiftParams*)pattern->params;
     
-    int current_offset = (params->offset + (time / params->period)) % params->pattern_length;
+    // Calculate the current shift offset based on time
+    int shift_amount = (time / params->period) % params->pattern_length;
     
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
-        int pattern_idx = (i + current_offset) % params->pattern_length;
+        int led_position = i - pattern->start_index;
+        int total_leds = pattern->end_index - pattern->start_index + 1;
+        
+        // Calculate which pattern element to use for this LED
+        int pattern_idx = (led_position + shift_amount + params->offset) % params->pattern_length;
+        
+        // If we have fewer LEDs than pattern length, wrap around
+        if (pattern_idx >= total_leds) {
+            pattern_idx = pattern_idx % total_leds;
+        }
+        
         led_matrix_set_led(matrix, pattern->edge, i, params->pattern[pattern_idx]);
     }
 }
@@ -295,10 +306,16 @@ static void apply_gradient_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t
 static void apply_twinkle_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t time) {
     TwinkleParams* params = (TwinkleParams*)pattern->params;
     
+    // Use time-based seeding for more predictable but still random behavior
+    srand(time / 100);  // Change seed every 100ms
+    
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
         float random_val = (float)rand() / RAND_MAX;
         if (random_val < params->probability) {
-            led_matrix_set_led(matrix, pattern->edge, i, params->color);
+            // Add some intensity variation for more natural twinkling
+            float intensity_variation = 0.7f + (random_val * 0.3f);
+            LEDColor twinkle_color = led_color_scale(params->color, intensity_variation);
+            led_matrix_set_led(matrix, pattern->edge, i, twinkle_color);
         }
     }
 }
@@ -312,10 +329,16 @@ static void apply_palette_cycle_pattern(LEDMatrix* matrix, Pattern* pattern, uin
         float led_position = cycle_position + (float)(i + params->offset) / 10.0f;
         led_position = fmodf(led_position, 1.0f);
         
-        int color_idx = (int)(led_position * params->palette.count);
-        LEDColor color = params->palette.colors[color_idx % params->palette.count];
+        // Interpolate between colors for smoother transitions
+        float color_pos = led_position * (params->palette.count - 1);
+        int color_idx = (int)color_pos;
+        float t = color_pos - color_idx;
         
-        led_matrix_set_led(matrix, pattern->edge, i, color);
+        LEDColor color1 = params->palette.colors[color_idx % params->palette.count];
+        LEDColor color2 = params->palette.colors[(color_idx + 1) % params->palette.count];
+        
+        LEDColor final_color = led_color_interpolate(color1, color2, t);
+        led_matrix_set_led(matrix, pattern->edge, i, final_color);
     }
 }
 
@@ -413,7 +436,79 @@ int led_pattern_pulse(LEDController* controller, int edge, int start_idx, int en
     return pattern_id;
 }
 
-// Add these functions to visual_LED.c after the existing pattern creation functions
+// Improved shift pattern creation function
+int led_pattern_shift(LEDController* controller, int edge, int start_idx, int end_idx,
+                     LEDColor* pattern_colors, int pattern_length, uint32_t period, int offset) {
+    if (!controller || controller->pattern_count >= MAX_PATTERNS) return -1;
+    if (!pattern_colors || pattern_length <= 0 || pattern_length > MAX_LEDS_PER_EDGE) return -1;
+    
+    int pattern_id = controller->pattern_count++;
+    Pattern* pattern = &controller->patterns[pattern_id];
+    
+    pattern->type = PATTERN_SHIFT;
+    pattern->edge = edge;
+    pattern->start_index = start_idx;
+    pattern->end_index = end_idx;
+    pattern->start_time = controller->current_time;
+    pattern->duration = 0; // Continuous shift pattern
+    pattern->active = true;
+    
+    ShiftParams* params = malloc(sizeof(ShiftParams));
+    params->pattern_length = pattern_length;
+    params->period = period;
+    params->offset = offset;
+    
+    // Copy pattern colors
+    for (int i = 0; i < pattern_length; i++) {
+        params->pattern[i] = pattern_colors[i];
+    }
+    
+    pattern->params = params;
+    
+    return pattern_id;
+}
+
+// Convenience function to create a simple comet-like shift pattern
+int led_pattern_shift_comet(LEDController* controller, int edge, int start_idx, int end_idx,
+                           LEDColor color, int comet_length, uint32_t period) {
+    if (comet_length <= 0 || comet_length > MAX_LEDS_PER_EDGE) return -1;
+    
+    LEDColor pattern_colors[MAX_LEDS_PER_EDGE];
+    LEDColor black = led_color_create(0, 0, 0, 0);
+    
+    // Create comet pattern: bright head followed by fading tail
+    for (int i = 0; i < comet_length; i++) {
+        float intensity = (float)(comet_length - i) / (float)comet_length;
+        pattern_colors[i] = led_color_scale(color, intensity);
+    }
+    
+    // Fill the rest with black
+    for (int i = comet_length; i < MAX_LEDS_PER_EDGE; i++) {
+        pattern_colors[i] = black;
+    }
+    
+    int total_leds = end_idx - start_idx + 1;
+    int pattern_length = (total_leds > comet_length * 2) ? comet_length * 2 : total_leds;
+    
+    return led_pattern_shift(controller, edge, start_idx, end_idx, pattern_colors, pattern_length, period, 0);
+}
+
+// Convenience function to create a simple moving dot pattern
+int led_pattern_shift_dot(LEDController* controller, int edge, int start_idx, int end_idx,
+                         LEDColor color, int spacing, uint32_t period) {
+    if (spacing <= 0 || spacing > MAX_LEDS_PER_EDGE) return -1;
+    
+    LEDColor pattern_colors[MAX_LEDS_PER_EDGE];
+    LEDColor black = led_color_create(0, 0, 0, 0);
+    
+    // Create dot pattern: one bright dot followed by spacing black LEDs
+    pattern_colors[0] = color;
+    for (int i = 1; i < spacing; i++) {
+        pattern_colors[i] = black;
+    }
+    
+    return led_pattern_shift(controller, edge, start_idx, end_idx, pattern_colors, spacing, period, 0);
+}
 
 int led_pattern_gradient(LEDController* controller, int edge, int start_idx, int end_idx,
                         LEDColor start_color, LEDColor end_color) {
@@ -484,6 +579,7 @@ int led_pattern_palette_cycle(LEDController* controller, int edge, int start_idx
     
     return pattern_id;
 }
+
 // Utility functions
 ColorPalette led_palette_rainbow(int steps) {
     ColorPalette palette;

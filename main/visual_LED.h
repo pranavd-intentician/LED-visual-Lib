@@ -154,12 +154,20 @@ int led_pattern_fade(LEDController* controller, int edge, int start_idx, int end
                     LEDColor start_color, LEDColor end_color, uint32_t duration);
 int led_pattern_pulse(LEDController* controller, int edge, int start_idx, int end_idx,
                      LEDColor base_color, uint8_t peak_intensity, uint32_t period);
+int led_pattern_shift(LEDController* controller, int edge, int start_idx, int end_idx,
+                     LEDColor* pattern_colors, int pattern_length, uint32_t period, int offset);
 int led_pattern_gradient(LEDController* controller, int edge, int start_idx, int end_idx,
                         LEDColor start_color, LEDColor end_color);
 int led_pattern_twinkle(LEDController* controller, int edge, int start_idx, int end_idx,
                        LEDColor color, float probability);
 int led_pattern_palette_cycle(LEDController* controller, int edge, int start_idx, int end_idx,
                              ColorPalette palette, uint32_t cycle_period, int offset);
+
+// Convenience shift pattern functions
+int led_pattern_shift_comet(LEDController* controller, int edge, int start_idx, int end_idx,
+                           LEDColor color, int comet_length, uint32_t period);
+int led_pattern_shift_dot(LEDController* controller, int edge, int start_idx, int end_idx,
+                         LEDColor color, int spacing, uint32_t period);
 
 // Utility functions
 ColorPalette led_palette_rainbow(int steps);
