@@ -1,2 +1,3 @@
 build
 . $HOME/esp/esp-idf/export.sh
+managed_components

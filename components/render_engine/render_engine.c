@@ -1,7 +1,8 @@
 #include "visual_LED.h"
 #include <stdio.h>
 #include <time.h>
-
+#include  <math.h>
+#include "framebuffer.h"
 // Forward declarations for static functions
 static void apply_static_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t time);
 static void apply_blink_pattern(LEDMatrix* matrix, Pattern* pattern, uint32_t time);
@@ -34,7 +35,11 @@ LEDController* led_controller_create(int num_edges, int* leds_per_edge) {
     
     // Initialize patterns array
     memset(controller->patterns, 0, sizeof(controller->patterns));
-    
+    if(framebuffer_init() != pdPASS) {
+        printf("Error: Failed to initialize frame buffer\n");
+        free(controller);
+        return pdFail;
+    }
     ensure_random_seed();
     return controller;
 }
@@ -48,7 +53,7 @@ void led_controller_destroy(LEDController* controller) {
             free(controller->patterns[i].params);
         }
     }
-    
+    framebuffer_cleanup();
     free(controller);
 }
 
@@ -104,6 +109,8 @@ void led_controller_update(LEDController* controller, uint32_t time) {
         
         // Blend with main matrix
         led_matrix_blend(&controller->matrix, &temp_matrix, BLEND_ADD);
+        framebuffer_write((float**)&controller->matrix,controller->current_time, i);
+
     }
 }
 
