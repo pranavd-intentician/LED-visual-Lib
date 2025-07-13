@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include "framebuffer.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -19,8 +20,8 @@ extern "C" {
 #define M_PI 3.14159265358979323846
 
 // Forward declarations
-typedef struct LEDColor LEDColor;
-typedef struct LEDMatrix LEDMatrix;
+typedef struct LedState_t LedState_t;
+typedef struct LedEdgeConfigState_t LedEdgeConfigState_t;
 typedef struct LEDController LEDController;
 typedef struct Pattern Pattern;
 typedef struct ColorPalette ColorPalette;
@@ -45,61 +46,50 @@ typedef enum {
 } BlendMode;
 
 // Structure definitions
-struct LEDColor {
-    uint8_t r;
-    uint8_t g;
-    uint8_t b;
-    uint8_t intensity;
-};
 
-struct LEDMatrix {
-    LEDColor leds[MAX_EDGES][MAX_LEDS_PER_EDGE];
-    int num_edges;
-    int leds_per_edge[MAX_EDGES];
-};
 
 struct ColorPalette {
-    LEDColor colors[MAX_PALETTE_COLORS];
+    LedState_t colors[MAX_PALETTE_COLORS];
     int count;
 };
 
 // Pattern parameter structures
 typedef struct {
-    LEDColor color;
+    LedState_t color;
 } StaticParams;
 
 typedef struct {
-    LEDColor on_color;
+    LedState_t on_color;
     uint32_t on_time;
     uint32_t off_time;
     int repeat_count;
 } BlinkParams;
 
 typedef struct {
-    LEDColor start_color;
-    LEDColor end_color;
+    LedState_t start_color;
+    LedState_t end_color;
 } FadeParams;
 
 typedef struct {
-    LEDColor base_color;
+    LedState_t base_color;
     uint8_t peak_intensity;
     uint32_t period;
 } PulseParams;
 
 typedef struct {
-    LEDColor pattern[MAX_LEDS_PER_EDGE];
+    LedState_t pattern[MAX_LEDS_PER_EDGE];
     int pattern_length;
     int offset;
     uint32_t period;
 } ShiftParams;
 
 typedef struct {
-    LEDColor start_color;
-    LEDColor end_color;
+    LedState_t start_color;
+    LedState_t end_color;
 } GradientParams;
 
 typedef struct {
-    LEDColor color;
+    LedState_t color;
     float probability;
 } TwinkleParams;
 
@@ -121,7 +111,7 @@ struct Pattern {
 };
 
 struct LEDController {
-    LEDMatrix matrix;
+    LedEdgeConfigState_t matrix;
     Pattern patterns[MAX_PATTERNS];
     int pattern_count;
     uint32_t current_time;
@@ -134,44 +124,44 @@ void led_controller_update(LEDController* controller, uint32_t time);
 void led_controller_clear(LEDController* controller);
 
 // Matrix operations
-void led_matrix_init(LEDMatrix* matrix, int num_edges, int* leds_per_edge);
-void led_matrix_clear(LEDMatrix* matrix);
-void led_matrix_set_led(LEDMatrix* matrix, int edge, int index, LEDColor color);
-LEDColor led_matrix_get_led(LEDMatrix* matrix, int edge, int index);
-void led_matrix_blend(LEDMatrix* dest, LEDMatrix* src, BlendMode mode);
+void led_matrix_init(LedEdgeConfigState_t* matrix, int num_edges, int* leds_per_edge);
+void led_matrix_clear(LedEdgeConfigState_t* matrix);
+void led_matrix_set_led(LedEdgeConfigState_t* matrix, int edge, int index, LedState_t color);
+LedState_t led_matrix_get_led(LedEdgeConfigState_t* matrix, int edge, int index);
+void led_matrix_blend(LedEdgeConfigState_t* dest, LedEdgeConfigState_t* src, BlendMode mode);
 
 // Color utilities
-LEDColor led_color_create(uint8_t r, uint8_t g, uint8_t b, uint8_t intensity);
-LEDColor led_color_interpolate(LEDColor start, LEDColor end, float t);
-LEDColor led_color_blend(LEDColor c1, LEDColor c2, BlendMode mode);
-LEDColor led_color_scale(LEDColor color, float scale);
+LedState_t led_color_create(uint8_t r, uint8_t g, uint8_t b, uint8_t intensity);
+LedState_t led_color_interpolate(LedState_t start, LedState_t end, float t);
+LedState_t led_color_blend(LedState_t c1, LedState_t c2, BlendMode mode);
+LedState_t led_color_scale(LedState_t color, float scale);
 
 // Pattern creation functions
-int led_pattern_static(LEDController* controller, int edge, int start_idx, int end_idx, LEDColor color);
+int led_pattern_static(LEDController* controller, int edge, int start_idx, int end_idx, LedState_t color);
 int led_pattern_blink(LEDController* controller, int edge, int start_idx, int end_idx, 
-                     LEDColor color, uint32_t on_time, uint32_t off_time, int repeats);
+                     LedState_t color, uint32_t on_time, uint32_t off_time, int repeats);
 int led_pattern_fade(LEDController* controller, int edge, int start_idx, int end_idx,
-                    LEDColor start_color, LEDColor end_color, uint32_t duration);
+                    LedState_t start_color, LedState_t end_color, uint32_t duration);
 int led_pattern_pulse(LEDController* controller, int edge, int start_idx, int end_idx,
-                     LEDColor base_color, uint8_t peak_intensity, uint32_t period);
+                     LedState_t base_color, uint8_t peak_intensity, uint32_t period);
 int led_pattern_shift(LEDController* controller, int edge, int start_idx, int end_idx,
-                     LEDColor* pattern_colors, int pattern_length, uint32_t period, int offset);
+                     LedState_t* pattern_colors, int pattern_length, uint32_t period, int offset);
 int led_pattern_gradient(LEDController* controller, int edge, int start_idx, int end_idx,
-                        LEDColor start_color, LEDColor end_color);
+                        LedState_t start_color, LedState_t end_color);
 int led_pattern_twinkle(LEDController* controller, int edge, int start_idx, int end_idx,
-                       LEDColor color, float probability);
+                       LedState_t color, float probability);
 int led_pattern_palette_cycle(LEDController* controller, int edge, int start_idx, int end_idx,
                              ColorPalette palette, uint32_t cycle_period, int offset);
 
 // Convenience shift pattern functions
 int led_pattern_shift_comet(LEDController* controller, int edge, int start_idx, int end_idx,
-                           LEDColor color, int comet_length, uint32_t period);
+                           LedState_t color, int comet_length, uint32_t period);
 int led_pattern_shift_dot(LEDController* controller, int edge, int start_idx, int end_idx,
-                         LEDColor color, int spacing, uint32_t period);
+                         LedState_t color, int spacing, uint32_t period);
 
 // Utility functions
 ColorPalette led_palette_rainbow(int steps);
-ColorPalette led_palette_create(LEDColor* colors, int count);
+ColorPalette led_palette_create(LedState_t* colors, int count);
 float led_ease_in_out(float t);
 uint32_t led_random_range(uint32_t min, uint32_t max);
 
