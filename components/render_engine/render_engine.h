@@ -20,8 +20,6 @@ extern "C" {
 #define M_PI 3.14159265358979323846
 
 // Forward declarations
-typedef struct LedState_t LedState_t;
-typedef struct LedEdgeConfigState_t LedEdgeConfigState_t;
 typedef struct LEDController LEDController;
 typedef struct Pattern Pattern;
 typedef struct ColorPalette ColorPalette;
@@ -111,7 +109,6 @@ struct Pattern {
 };
 
 struct LEDController {
-    LedEdgeConfigState_t matrix;
     Pattern patterns[MAX_PATTERNS];
     int pattern_count;
     uint32_t current_time;

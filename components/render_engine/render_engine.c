@@ -1,17 +1,17 @@
-#include "visual_LED.h"
+#include "render_engine.h"
 #include <stdio.h>
 #include <time.h>
 #include  <math.h>
-#include "framebuffer.h"
+
 // Forward declarations for static functions
-static void apply_static_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_blink_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_fade_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_pulse_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_shift_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_gradient_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_twinkle_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
-static void apply_palette_cycle_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time);
+static void apply_static_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_blink_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_fade_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_pulse_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_shift_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_gradient_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_twinkle_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
+static void apply_palette_cycle_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
 
 // Global random seed
 static bool random_seeded = false;
@@ -24,21 +24,20 @@ static void ensure_random_seed() {
     }
 }
 
-// Core controller functions
+//--------------------------------------Controller operations------------------------------------//
+
 LEDController* led_controller_create(int num_edges, int* leds_per_edge) {
     LEDController* controller = malloc(sizeof(LEDController));
     if (!controller) return NULL;
-    
-    led_matrix_init(&controller->matrix, num_edges, leds_per_edge);
     controller->pattern_count = 0;
     controller->current_time = 0;
     
     // Initialize patterns array
     memset(controller->patterns, 0, sizeof(controller->patterns));
-    if(framebuffer_init() != pdPASS) {
+    if(framebuffer_init(num_edges, (uint32_t*)leds_per_edge) != pdPASS) {
         printf("Error: Failed to initialize frame buffer\n");
         free(controller);
-        return pdFail;
+        return pdFAIL;
     }
     ensure_random_seed();
     return controller;
@@ -58,14 +57,10 @@ void led_controller_destroy(LEDController* controller) {
 }
 
 void led_controller_update(LEDController* controller, uint32_t time) {
-    if (!controller) return;
-    
+    if (!controller || !nextLedConfigState->data) return;
+
     controller->current_time = time;
-    led_matrix_clear(&controller->matrix);
-    
-    LedEdgeConfigState_t* temp_matrix;
-    led_matrix_init(&temp_matrix, controller->matrix.num_edges, controller->matrix.leds_per_edge);
-    
+
     // Process each active pattern
     for (int i = 0; i < controller->pattern_count; i++) {
         Pattern* pattern = &controller->patterns[i];
@@ -77,88 +72,81 @@ void led_controller_update(LEDController* controller, uint32_t time) {
             continue;
         }
         
-        led_matrix_clear(&temp_matrix);
+        led_matrix_clear(nextLedConfigState);
         
         // Apply pattern based on type
         switch (pattern->type) {
             case PATTERN_STATIC:
-                apply_static_pattern(&temp_matrix, pattern, pattern_time);
+                apply_static_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_BLINK:
-                apply_blink_pattern(&temp_matrix, pattern, pattern_time);
+                apply_blink_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_FADE:
-                apply_fade_pattern(&temp_matrix, pattern, pattern_time);
+                apply_fade_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_PULSE:
-                apply_pulse_pattern(&temp_matrix, pattern, pattern_time);
+                apply_pulse_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_SHIFT:
-                apply_shift_pattern(&temp_matrix, pattern, pattern_time);
+                apply_shift_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_GRADIENT:
-                apply_gradient_pattern(&temp_matrix, pattern, pattern_time);
+                apply_gradient_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_TWINKLE:
-                apply_twinkle_pattern(&temp_matrix, pattern, pattern_time);
+                apply_twinkle_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
             case PATTERN_PALETTE_CYCLE:
-                apply_palette_cycle_pattern(&temp_matrix, pattern, pattern_time);
+                apply_palette_cycle_pattern(nextLedConfigState, pattern, pattern_time);
                 break;
         }
         
-        // Blend with main matrix
-        led_matrix_blend(&controller->matrix, &temp_matrix, BLEND_ADD);
-        framebuffer_write((float**)&controller->matrix,controller->current_time, i);
-
+        //swap frames in framebuffer
+        framebuffer_swap();
     }
 }
 
 void led_controller_clear(LEDController* controller) {
     if (!controller) return;
-    led_matrix_clear(&controller->matrix);
+    // led_matrix_clear(&controller->matrix);
 }
+//--------------------------------------Controller operations------------------------------------//
 
-// Matrix operations
-void led_matrix_init(LedEdgeConfigState_t** matrix, int num_edges, int* leds_per_edge) {
-    if (!matrix) return;
-    
-    matrix->num_edges = num_edges;
-    for (int i = 0; i < num_edges && i < MAX_EDGES; i++) {
-        matrix->leds_per_edge[i] = leds_per_edge[i];
+//-----------------------------------------Matrix operations--------------------------------------//
+
+void led_matrix_clear(LedEdgeConfigState_t* configState) {
+    if (!configState) return;
+    for(int i=0; i< configState->num_edges; i++) {
+        memset(configState->data[i], 0, configState->num_led_per_edge[i] * sizeof(LedState_t));
     }
-    led_matrix_clear(matrix);
 }
 
-void led_matrix_clear(LedEdgeConfigState_t** matrix) {
-    if (!matrix) return;
-    memset(matrix->leds, 0, sizeof(matrix->leds));
+void led_matrix_set_led(LedEdgeConfigState_t* configState, int edge, int index, LedState_t color) {
+    if (!configState->data || edge >= configState->num_edges || index >= configState->num_led_per_edge[edge])return;
+    configState->data[edge][index];
 }
 
-void led_matrix_set_led(LedEdgeConfigState_t** matrix, int edge, int index, LedState_t color) {
-    if (!matrix || edge >= matrix->num_edges || index >= matrix->leds_per_edge[edge]) return;
-    matrix->leds[edge][index] = color;
-}
-
-LedState_t led_matrix_get_led(LedEdgeConfigState_t** matrix, int edge, int index) {
+LedState_t led_matrix_get_led(LedEdgeConfigState_t* configState, int edge, int index) {
     LedState_t black = {0, 0, 0, 0};
-    if (!matrix || edge >= matrix->num_edges || index >= matrix->leds_per_edge[edge]) return black;
-    return matrix->leds[edge][index];
+    if (!configState->data || edge >= configState->num_edges || index >= configState->num_led_per_edge[edge]) return black;
+    return configState->data[edge][index];
 }
 
-void led_matrix_blend(LedEdgeConfigState_t** dest, LedEdgeConfigState_t** src, BlendMode mode) {
+void led_matrix_blend(LedEdgeConfigState_t* dest,LedEdgeConfigState_t* src, BlendMode mode) {
     if (!dest || !src) return;
     
     for (int e = 0; e < dest->num_edges; e++) {
-        for (int i = 0; i < dest->leds_per_edge[e]; i++) {
-            LedState_t current = dest->leds[e][i];
-            LedState_t new_color = src->leds[e][i];
-            dest->leds[e][i] = led_color_blend(current, new_color, mode);
+        for (int i = 0; i < dest->num_led_per_edge[e]; i++) {
+            LedState_t current = dest->data[e][i];
+            LedState_t new_color = src->data[e][i];
+            dest->data[e][i] = led_color_blend(current, new_color, mode);
         }
     }
 }
+//-----------------------------------------Matrix operations--------------------------------------//
 
-// Color utilities
+//-----------------------------------------Color operations---------------------------------------//
 LedState_t led_color_create(uint8_t r, uint8_t g, uint8_t b, uint8_t intensity) {
     LedState_t color = {r, g, b, intensity};
     return color;
@@ -190,7 +178,7 @@ LedState_t led_color_blend(LedState_t c1, LedState_t c2, BlendMode mode) {
         case BLEND_MAX:
             result.r = (c1.r > c2.r) ? c1.r : c2.r;
             result.g = (c1.g > c2.g) ? c1.g : c2.g;
-            result.b = (c1.b > c2.b) ? c1.b : c2.b;
+            result.b = (c1.b > c2.b) ? c1.b : c2.b; 
             result.intensity = (c1.intensity > c2.intensity) ? c1.intensity : c2.intensity;
             break;
             
@@ -226,17 +214,18 @@ LedState_t led_color_scale(LedState_t color, float scale) {
     result.intensity = (uint8_t)(color.intensity * scale);
     return result;
 }
+//-----------------------------------------Color operations---------------------------------------//
 
-// Pattern application functions (internal)
-static void apply_static_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+//-------------------------- Pattern application functions (internal)-----------------------------//
+static void apply_static_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     StaticParams* params = (StaticParams*)pattern->params;
     
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
-        led_matrix_set_led(matrix, pattern->edge, i, params->color);
+        led_matrix_set_led(configState, pattern->edge, i, params->color);
     }
 }
 
-static void apply_blink_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_blink_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     BlinkParams* params = (BlinkParams*)pattern->params;
     
     uint32_t cycle_time = params->on_time + params->off_time;
@@ -244,12 +233,12 @@ static void apply_blink_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern,
     
     if (phase < params->on_time) {
         for (int i = pattern->start_index; i <= pattern->end_index; i++) {
-            led_matrix_set_led(matrix, pattern->edge, i, params->on_color);
+            led_matrix_set_led(configState, pattern->edge, i, params->on_color);
         }
     }
 }
 
-static void apply_fade_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_fade_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     FadeParams* params = (FadeParams*)pattern->params;
     
     float t = (float)time / (float)pattern->duration;
@@ -258,11 +247,11 @@ static void apply_fade_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, 
     LedState_t current = led_color_interpolate(params->start_color, params->end_color, t);
     
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
-        led_matrix_set_led(matrix, pattern->edge, i, current);
+        led_matrix_set_led(configState, pattern->edge, i, current);
     }
 }
 
-static void apply_pulse_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_pulse_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     PulseParams* params = (PulseParams*)pattern->params;
     
     float phase = (float)(time % params->period) / (float)params->period;
@@ -272,11 +261,11 @@ static void apply_pulse_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern,
     pulsed.intensity = (uint8_t)(params->peak_intensity * intensity_factor);
     
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
-        led_matrix_set_led(matrix, pattern->edge, i, pulsed);
+        led_matrix_set_led(configState, pattern->edge, i, pulsed);
     }
 }
 
-static void apply_shift_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_shift_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     ShiftParams* params = (ShiftParams*)pattern->params;
     
     // Calculate the current shift offset based on time
@@ -294,11 +283,11 @@ static void apply_shift_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern,
             pattern_idx = pattern_idx % total_leds;
         }
         
-        led_matrix_set_led(matrix, pattern->edge, i, params->pattern[pattern_idx]);
+        led_matrix_set_led(configState, pattern->edge, i, params->pattern[pattern_idx]);
     }
 }
 
-static void apply_gradient_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_gradient_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     GradientParams* params = (GradientParams*)pattern->params;
     
     int led_count = pattern->end_index - pattern->start_index + 1;
@@ -306,11 +295,11 @@ static void apply_gradient_pattern(LedEdgeConfigState_t** matrix, Pattern* patte
     for (int i = pattern->start_index; i <= pattern->end_index; i++) {
         float t = (float)(i - pattern->start_index) / (float)(led_count - 1);
         LedState_t gradient_color = led_color_interpolate(params->start_color, params->end_color, t);
-        led_matrix_set_led(matrix, pattern->edge, i, gradient_color);
+        led_matrix_set_led(configState, pattern->edge, i, gradient_color);
     }
 }
 
-static void apply_twinkle_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_twinkle_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     TwinkleParams* params = (TwinkleParams*)pattern->params;
     
     // Use time-based seeding for more predictable but still random behavior
@@ -322,12 +311,12 @@ static void apply_twinkle_pattern(LedEdgeConfigState_t** matrix, Pattern* patter
             // Add some intensity variation for more natural twinkling
             float intensity_variation = 0.7f + (random_val * 0.3f);
             LedState_t twinkle_color = led_color_scale(params->color, intensity_variation);
-            led_matrix_set_led(matrix, pattern->edge, i, twinkle_color);
+            led_matrix_set_led(configState, pattern->edge, i, twinkle_color);
         }
     }
 }
 
-static void apply_palette_cycle_pattern(LedEdgeConfigState_t** matrix, Pattern* pattern, uint32_t time) {
+static void apply_palette_cycle_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time) {
     PaletteCycleParams* params = (PaletteCycleParams*)pattern->params;
     
     float cycle_position = (float)(time % params->cycle_period) / (float)params->cycle_period;
@@ -345,11 +334,12 @@ static void apply_palette_cycle_pattern(LedEdgeConfigState_t** matrix, Pattern* 
         LedState_t color2 = params->palette.colors[(color_idx + 1) % params->palette.count];
         
         LedState_t final_color = led_color_interpolate(color1, color2, t);
-        led_matrix_set_led(matrix, pattern->edge, i, final_color);
+        led_matrix_set_led(configState, pattern->edge, i, final_color);
     }
 }
+//-------------------------- Pattern application functions (internal)-----------------------------//
 
-// Pattern creation functions
+//-----------------------------------Pattern creation functions-----------------------------------//
 int led_pattern_static(LEDController* controller, int edge, int start_idx, int end_idx, LedState_t color) {
     if (!controller || controller->pattern_count >= MAX_PATTERNS) return -1;
     
@@ -586,8 +576,9 @@ int led_pattern_palette_cycle(LEDController* controller, int edge, int start_idx
     
     return pattern_id;
 }
+//-----------------------------------Pattern creation functions-----------------------------------//
 
-// Utility functions
+//------------------------------------------Utility functions-------------------------------------//
 ColorPalette led_palette_rainbow(int steps) {
     ColorPalette palette;
     palette.count = steps > MAX_PALETTE_COLORS ? MAX_PALETTE_COLORS : steps;
@@ -618,6 +609,7 @@ ColorPalette led_palette_rainbow(int steps) {
     
     return palette;
 }
+//------------------------------------------Utility functions-------------------------------------//
 
 ColorPalette led_palette_create(LedState_t* colors, int count) {
     ColorPalette palette;
@@ -639,7 +631,7 @@ uint32_t led_random_range(uint32_t min, uint32_t max) {
     return min + (rand() % (max - min + 1));
 }
 
-// Pattern control functions
+//--------------------------------------- Pattern control functions------------------------------//
 void led_pattern_remove(LEDController* controller, int pattern_id) {
     if (!controller || pattern_id >= controller->pattern_count) return;
     
@@ -663,3 +655,4 @@ void led_pattern_start(LEDController* controller, int pattern_id, uint32_t start
     pattern->start_time = start_time;
     pattern->active = true;
 }
+//--------------------------------------- Pattern control functions------------------------------//

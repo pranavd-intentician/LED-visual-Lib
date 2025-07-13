@@ -1,5 +1,5 @@
-#include "led_handler.h"
-#include "visual_LED.h"
+#include "physical_led_updater.h"
+#include "render_engine.h"
 #include "led_strip.h"
 #include "led_strip_types.h"
 #include <string.h>
@@ -8,6 +8,8 @@
 #include <freertos/task.h>
 #include <esp_log.h>
 #include <esp_timer.h>
+#include <inttypes.h>
+
 
 #define LED_STRIP_GPIO 17
 #define LED_STRIP_LENGTH 60
@@ -23,6 +25,8 @@ static bool led_task_running = false;
 
 // Visual LED controller
 static LEDController* led_controller = NULL;
+// prototype for update task function
+static void led_update_task(void *param);
 
 // Pattern tracking for each edge
 typedef struct {
@@ -72,7 +76,7 @@ static void update_physical_strip(void) {
         
         for (int i = start_idx; i <= end_idx; i++) {
             int led_idx = i - start_idx;
-            LEDColor color = led_matrix_get_led(&led_controller->matrix, edge, led_idx);
+            LedState_t color = led_matrix_get_led(currentLedConfigState, edge, led_idx);
             
             // Apply intensity scaling
             uint8_t r = (color.r * color.intensity) / 255;
@@ -83,63 +87,6 @@ static void update_physical_strip(void) {
         }
     }
 }
-
-// Create visual LED pattern based on handler pattern type
-static int create_visual_pattern(uint8_t edge_id, uint8_t pattern, 
-                                uint8_t r, uint8_t g, uint8_t b, 
-                                uint8_t intensity, uint32_t speed_ms) {
-    if (!led_controller || edge_id >= NUM_EDGES) return -1;
-    
-    int start_idx = 0;
-    int end_idx = LEDS_PER_EDGE - 1;
-    LEDColor color = led_color_create(r, g, b, intensity);
-    
-    switch (pattern) {
-        case LED_PATTERN_OFF:
-            return led_pattern_static(led_controller, edge_id, start_idx, end_idx, 
-                                    led_color_create(0, 0, 0, 0));
-            
-        case LED_PATTERN_STATIC:
-            return led_pattern_static(led_controller, edge_id, start_idx, end_idx, color);
-            
-        case LED_PATTERN_BLINK:
-            return led_pattern_blink(led_controller, edge_id, start_idx, end_idx, 
-                                   color, speed_ms/2, speed_ms/2, 0);
-            
-        case LED_PATTERN_BREATH:
-            return led_pattern_pulse(led_controller, edge_id, start_idx, end_idx, 
-                                   color, intensity, speed_ms);
-            
-        case LED_PATTERN_RAINBOW:
-        {
-            ColorPalette rainbow = led_palette_rainbow(12);
-            return led_pattern_palette_cycle(led_controller, edge_id, start_idx, end_idx, 
-                                           rainbow, speed_ms, 0);
-        }
-        
-        case LED_PATTERN_FADE_IN:
-        {
-            LEDColor black = led_color_create(0, 0, 0, 0);
-            return led_pattern_fade(led_controller, edge_id, start_idx, end_idx, 
-                                  black, color, speed_ms);
-        }
-        
-        case LED_PATTERN_FADE_OUT:
-        {
-            LEDColor black = led_color_create(0, 0, 0, 0);
-            return led_pattern_fade(led_controller, edge_id, start_idx, end_idx, 
-                                  color, black, speed_ms);
-        }
-        
-        case LED_PATTERN_TWINKLE:
-            return led_pattern_twinkle(led_controller, edge_id, start_idx, end_idx, 
-                                     color, 0.2f);
-            
-        default:
-            return -1;
-    }
-}
-
 // LED update task
 static void led_update_task(void *param) {
     TickType_t last_wake_time = xTaskGetTickCount();
@@ -164,7 +111,6 @@ static void led_update_task(void *param) {
     
     vTaskDelete(NULL);
 }
-
 // Initialize LED handler
 void led_handler_init(void) {
     ESP_LOGI(TAG, "Initializing LED handler with Visual LED library...");
@@ -215,7 +161,7 @@ void led_handler_init(void) {
     led_task_running = true;
     xTaskCreate(led_update_task, "led_update", 1024*10, NULL, 5, &led_task_handle);
     
-    ESP_LOGI(TAG, "LED handler initialized with Visual LED library - %d edges, %d LEDs per edge", 
+    ESP_LOGI(TAG, "LED handler initialized with Visual LED library - %" PRIu32 "edges, %"PRIu32" LEDs per edge", 
              NUM_EDGES, LEDS_PER_EDGE);
 }
 
@@ -238,6 +184,66 @@ void led_handler_deinit(void) {
         strip = NULL;
     }
 }
+
+
+
+// Create visual LED pattern based on handler pattern type
+static int create_visual_pattern(uint8_t edge_id, uint8_t pattern, 
+                                uint8_t r, uint8_t g, uint8_t b, 
+                                uint8_t intensity, uint32_t speed_ms) {
+    if (!led_controller || edge_id >= NUM_EDGES) return -1;
+    
+    int start_idx = 0;
+    int end_idx = LEDS_PER_EDGE - 1;
+    LedState_t color = led_color_create(r, g, b, intensity);
+    
+    switch (pattern) {
+        case LED_PATTERN_OFF:
+            return led_pattern_static(led_controller, edge_id, start_idx, end_idx, 
+                                    led_color_create(0, 0, 0, 0));
+            
+        case LED_PATTERN_STATIC:
+            return led_pattern_static(led_controller, edge_id, start_idx, end_idx, color);
+            
+        case LED_PATTERN_BLINK:
+            return led_pattern_blink(led_controller, edge_id, start_idx, end_idx, 
+                                   color, speed_ms/2, speed_ms/2, 0);
+            
+        case LED_PATTERN_BREATH:
+            return led_pattern_pulse(led_controller, edge_id, start_idx, end_idx, 
+                                   color, intensity, speed_ms);
+            
+        case LED_PATTERN_RAINBOW:
+        {
+            ColorPalette rainbow = led_palette_rainbow(12);
+            return led_pattern_palette_cycle(led_controller, edge_id, start_idx, end_idx, 
+                                           rainbow, speed_ms, 0);
+        }
+        
+        case LED_PATTERN_FADE_IN:
+        {
+            LedState_t black = led_color_create(0, 0, 0, 0);
+            return led_pattern_fade(led_controller, edge_id, start_idx, end_idx, 
+                                  black, color, speed_ms);
+        }
+        
+        case LED_PATTERN_FADE_OUT:
+        {
+            LedState_t black = led_color_create(0, 0, 0, 0);
+            return led_pattern_fade(led_controller, edge_id, start_idx, end_idx, 
+                                  color, black, speed_ms);
+        }
+        
+        case LED_PATTERN_TWINKLE:
+            return led_pattern_twinkle(led_controller, edge_id, start_idx, end_idx, 
+                                     color, 0.2f);
+            
+        default:
+            return -1;
+    }
+}
+
+
 
 // Set pattern for specific edge - MAIN FUNCTION
 void led_set_edge_pattern(uint8_t edge_id, uint8_t pattern, 
@@ -280,7 +286,7 @@ void led_set_edge_pattern(uint8_t edge_id, uint8_t pattern,
         }
     }
     
-    ESP_LOGI(TAG, "Edge %d: Pattern %s, RGB(%d,%d,%d), Intensity=%d, Speed=%dms", 
+    ESP_LOGI(TAG, "Edge %"PRIu32": Pattern %s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%" PRIu32 "ms", 
              edge_id, pattern_names[pattern], r, g, b, intensity, speed_ms);
 }
 
@@ -300,7 +306,7 @@ void led_turn_off_all(void) {
 void led_show_all_patterns(void) {
     ESP_LOGI(TAG, "Available patterns:");
     for (int i = 0; i <= LED_PATTERN_TWINKLE; i++) {
-        ESP_LOGI(TAG, "  %d: %s", i, pattern_names[i]);
+        ESP_LOGI(TAG, "  %"PRIu32": %s", i, pattern_names[i]);
     }
 }
 
@@ -308,7 +314,7 @@ void led_show_all_patterns(void) {
 void led_demo_edge_patterns(uint8_t edge_id) {
     if (edge_id >= NUM_EDGES) return;
     
-    ESP_LOGI(TAG, "Starting pattern demo on edge %d", edge_id);
+    ESP_LOGI(TAG, "Starting pattern demo on edge %"PRIu32"", edge_id);
     
     // Turn off all other edges
     for (int i = 0; i < NUM_EDGES; i++) {
@@ -330,13 +336,13 @@ void led_demo_edge_patterns(uint8_t edge_id) {
     
     for (int pattern = 1; pattern <= LED_PATTERN_TWINKLE; pattern++) {
         uint8_t* color = demo_colors[pattern % 7];
-        ESP_LOGI(TAG, "Edge %d: Testing pattern %s", edge_id, pattern_names[pattern]);
+        ESP_LOGI(TAG, "Edge %" PRIu32" Testing pattern %s", edge_id, pattern_names[pattern]);
         
         led_set_edge_pattern(edge_id, pattern, color[0], color[1], color[2], 200, 2000);
         vTaskDelay(pdMS_TO_TICKS(5000));  // Show each pattern for 5 seconds
     }
     
-    ESP_LOGI(TAG, "Pattern demo completed on edge %d", edge_id);
+    ESP_LOGI(TAG, "Pattern demo completed on edge %" PRIu32, edge_id);
 }
 
 // Test function - shows different patterns on all edges simultaneously
@@ -357,7 +363,7 @@ void led_get_edge_status(uint8_t edge_id) {
     if (edge_id >= NUM_EDGES) return;
     
     edge_state_t* state = &edge_states[edge_id];
-    ESP_LOGI(TAG, "Edge %d: Pattern=%s, RGB(%d,%d,%d), Intensity=%d, Speed=%dms, Active=%s",
+    ESP_LOGI(TAG, "Edge %"PRIu32": Pattern=%s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%"PRIu32"ms, Active=%s",
              edge_id, pattern_names[state->pattern], 
              state->r, state->g, state->b, state->intensity, state->speed_ms,
              state->active ? "Yes" : "No");
@@ -367,7 +373,7 @@ void led_get_edge_status(uint8_t edge_id) {
 void led_get_all_status(void) {
     ESP_LOGI(TAG, "=== LED Status ===");
     for (int i = 0; i < NUM_EDGES; i++) {
-        led_get_edge_status(i);
+        led_get_edge_status((uint8_t)i);
     }
 }
 
