@@ -107,6 +107,10 @@ void led_handler_init(void);
 // Deinitialize LED handler
 void led_handler_deinit(void);
 
+// prototype for update task function
+ void led_update_task(void *param);
+
+
 // MAIN FUNCTION: Set pattern for specific edge
 // edge_id: 0-3 (for 4 edges)
 // pattern: LED_PATTERN_* enum value

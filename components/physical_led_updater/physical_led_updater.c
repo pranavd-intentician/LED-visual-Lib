@@ -7,9 +7,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 #include <esp_log.h>
-#include <esp_timer.h>
 #include <inttypes.h>
-
+#include "main.h"
 
 #define LED_STRIP_GPIO 17
 #define LED_STRIP_LENGTH 60
@@ -20,13 +19,10 @@ static const char *TAG = "LED_HANDLER";
 
 // LED strip handle
 static led_strip_handle_t strip = NULL;
-static TaskHandle_t led_task_handle = NULL;
 static bool led_task_running = false;
 
-// Visual LED controller
-static LEDController* led_controller = NULL;
-// prototype for update task function
-static void led_update_task(void *param);
+
+
 
 // Pattern tracking for each edge
 typedef struct {
@@ -52,10 +48,7 @@ static const char* pattern_names[] = {
     "TWINKLE"
 };
 
-// Get current time in milliseconds
-static uint32_t get_current_time_ms(void) {
-    return esp_timer_get_time() / 1000;
-}
+
 
 // Get LED index range for an edge
 static void get_edge_range(uint8_t edge_id, int* start_idx, int* end_idx) {
@@ -88,25 +81,21 @@ static void update_physical_strip(void) {
     }
 }
 // LED update task
-static void led_update_task(void *param) {
-    TickType_t last_wake_time = xTaskGetTickCount();
-    const TickType_t update_period = pdMS_TO_TICKS(50); // 20 FPS
+ void led_update_task(void *param) {
+    uint32_t notification_value;
     
     while (led_task_running) {
-        uint32_t current_time = get_current_time_ms();
-        
-        // Update visual LED controller
-        if (led_controller) {
-            led_controller_update(led_controller, current_time);
+        // Wait for notification from render task
+        if (xTaskNotifyWait(0, ULONG_MAX, &notification_value, pdMS_TO_TICKS(100)) == pdTRUE) {
+            // New frame is ready, update physical strip
             update_physical_strip();
+            
+            // Refresh strip
+            if (strip) {
+                led_strip_refresh(strip);
+            }
         }
-        
-        // Refresh strip
-        if (strip) {
-            led_strip_refresh(strip);
-        }
-        
-        vTaskDelayUntil(&last_wake_time, update_period);
+        // If timeout occurs, continue loop
     }
     
     vTaskDelete(NULL);
@@ -159,30 +148,26 @@ void led_handler_init(void) {
     
     // Start LED update task
     led_task_running = true;
-    xTaskCreate(led_update_task, "led_update", 1024*10, NULL, 5, &led_task_handle);
     
-    ESP_LOGI(TAG, "LED handler initialized with Visual LED library - %" PRIu32 "edges, %"PRIu32" LEDs per edge", 
-             NUM_EDGES, LEDS_PER_EDGE);
+    // ESP_LOGI(TAG, "LED handler initialized with Visual LED library - %" PRIu32 "edges, %"PRIu32" LEDs per edge", 
+            //  NUM_EDGES, LEDS_PER_EDGE);
 }
 
 // Deinitialize LED handler
-void led_handler_deinit(void) {
+void led_tasks_cleanup(void) {
     led_task_running = false;
-    if (led_task_handle) {
-        vTaskDelay(pdMS_TO_TICKS(100));
-        led_task_handle = NULL;
+    
+    // Wait for tasks to finish
+    if (physical_led_task_handle) {
+        vTaskDelete(physical_led_task_handle);
+        physical_led_task_handle = NULL;
     }
     
-    if (led_controller) {
-        led_controller_destroy(led_controller);
-        led_controller = NULL;
+    if (render_engine_task_handle) {
+        vTaskDelete(render_engine_task_handle);
+        render_engine_task_handle = NULL;
     }
     
-    if (strip) {
-        led_strip_clear(strip);
-        led_strip_del(strip);
-        strip = NULL;
-    }
 }
 
 
@@ -281,13 +266,13 @@ void led_set_edge_pattern(uint8_t edge_id, uint8_t pattern,
         state->visual_pattern_id = create_visual_pattern(edge_id, pattern, r, g, b, 
                                                        intensity, speed_ms);
         if (state->visual_pattern_id < 0) {
-            ESP_LOGE(TAG, "Failed to create visual pattern for edge %d", edge_id);
+            // ESP_LOGE(TAG, "Failed to create visual pattern for edge %d", edge_id);
             state->active = false;
         }
     }
     
-    ESP_LOGI(TAG, "Edge %"PRIu32": Pattern %s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%" PRIu32 "ms", 
-             edge_id, pattern_names[pattern], r, g, b, intensity, speed_ms);
+    // ESP_LOGI(TAG, "Edge %"PRIu32": Pattern %s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%" PRIu32 "ms", 
+            //  edge_id, pattern_names[pattern], r, g, b, intensity, speed_ms);
 }
 
 // Turn off specific edge
@@ -306,7 +291,7 @@ void led_turn_off_all(void) {
 void led_show_all_patterns(void) {
     ESP_LOGI(TAG, "Available patterns:");
     for (int i = 0; i <= LED_PATTERN_TWINKLE; i++) {
-        ESP_LOGI(TAG, "  %"PRIu32": %s", i, pattern_names[i]);
+        // ESP_LOGI(TAG, "  %"PRIu32": %s", i, pattern_names[i]);
     }
 }
 
@@ -314,7 +299,7 @@ void led_show_all_patterns(void) {
 void led_demo_edge_patterns(uint8_t edge_id) {
     if (edge_id >= NUM_EDGES) return;
     
-    ESP_LOGI(TAG, "Starting pattern demo on edge %"PRIu32"", edge_id);
+    // ESP_LOGI(TAG, "Starting pattern demo on edge %"PRIu32"", edge_id);
     
     // Turn off all other edges
     for (int i = 0; i < NUM_EDGES; i++) {
@@ -336,13 +321,13 @@ void led_demo_edge_patterns(uint8_t edge_id) {
     
     for (int pattern = 1; pattern <= LED_PATTERN_TWINKLE; pattern++) {
         uint8_t* color = demo_colors[pattern % 7];
-        ESP_LOGI(TAG, "Edge %" PRIu32" Testing pattern %s", edge_id, pattern_names[pattern]);
+        // ESP_LOGI(TAG, "Edge %" PRIu32" Testing pattern %s", edge_id, pattern_names[pattern]);
         
         led_set_edge_pattern(edge_id, pattern, color[0], color[1], color[2], 200, 2000);
         vTaskDelay(pdMS_TO_TICKS(5000));  // Show each pattern for 5 seconds
     }
     
-    ESP_LOGI(TAG, "Pattern demo completed on edge %" PRIu32, edge_id);
+    // ESP_LOGI(TAG, "Pattern demo completed on edge %" PRIu32, edge_id);
 }
 
 // Test function - shows different patterns on all edges simultaneously
@@ -363,10 +348,10 @@ void led_get_edge_status(uint8_t edge_id) {
     if (edge_id >= NUM_EDGES) return;
     
     edge_state_t* state = &edge_states[edge_id];
-    ESP_LOGI(TAG, "Edge %"PRIu32": Pattern=%s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%"PRIu32"ms, Active=%s",
-             edge_id, pattern_names[state->pattern], 
-             state->r, state->g, state->b, state->intensity, state->speed_ms,
-             state->active ? "Yes" : "No");
+    // ESP_LOGI(TAG, "Edge %"PRIu32": Pattern=%s, RGB(%"PRIu32",%"PRIu32",%"PRIu32"), Intensity=%"PRIu32", Speed=%"PRIu32"ms, Active=%s",
+            //  edge_id, pattern_names[state->pattern], 
+            //  state->r, state->g, state->b, state->intensity, state->speed_ms,
+            //  state->active ? "Yes" : "No");
 }
 
 // Get all edges status

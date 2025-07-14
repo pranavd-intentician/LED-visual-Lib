@@ -119,7 +119,7 @@ LEDController* led_controller_create(int num_edges, int* leds_per_edge);
 void led_controller_destroy(LEDController* controller);
 void led_controller_update(LEDController* controller, uint32_t time);
 void led_controller_clear(LEDController* controller);
-
+void led_controller_task(void *param);
 // Matrix operations
 void led_matrix_init(LedEdgeConfigState_t* matrix, int num_edges, int* leds_per_edge);
 void led_matrix_clear(LedEdgeConfigState_t* matrix);

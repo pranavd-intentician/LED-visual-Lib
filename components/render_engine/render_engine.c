@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <time.h>
 #include  <math.h>
-
+#include "main.h"
 // Forward declarations for static functions
 static void apply_static_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
 static void apply_blink_pattern(LedEdgeConfigState_t* configState, Pattern* pattern, uint32_t time);
@@ -107,6 +107,30 @@ void led_controller_update(LEDController* controller, uint32_t time) {
     }
 }
 
+//render engine task fucntion
+void led_controller_task(void* params){
+    TickType_t last_wake_time = xTaskGetTickCount();
+    const TickType_t render_period = pdMS_TO_TICKS(50); // 20 FPS
+    
+    while (1) {
+        uint32_t current_time = get_current_time_ms();
+        
+        // Update visual LED controller
+        if (led_controller) {
+            led_controller_update(led_controller, current_time);
+            
+            // Notify display task that new frame is ready
+            if (physical_led_task_handle) {
+                xTaskNotify(physical_led_task_handle, 1, eSetValueWithOverwrite);
+            }
+        }
+        
+        vTaskDelayUntil(&last_wake_time, render_period);
+    }
+    
+    vTaskDelete(NULL);
+}
+
 void led_controller_clear(LEDController* controller) {
     if (!controller) return;
     // led_matrix_clear(&controller->matrix);
@@ -124,7 +148,7 @@ void led_matrix_clear(LedEdgeConfigState_t* configState) {
 
 void led_matrix_set_led(LedEdgeConfigState_t* configState, int edge, int index, LedState_t color) {
     if (!configState->data || edge >= configState->num_edges || index >= configState->num_led_per_edge[edge])return;
-    configState->data[edge][index];
+    configState->data[edge][index] = color;
 }
 
 LedState_t led_matrix_get_led(LedEdgeConfigState_t* configState, int edge, int index) {

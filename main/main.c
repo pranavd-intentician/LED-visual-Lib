@@ -3,11 +3,17 @@
 #include <freertos/task.h>
 #include <esp_log.h>
 #include <esp_system.h>
+#include <esp_timer.h>
 #include <nvs_flash.h>
 #include "physical_led_updater.h"
 #include  "render_engine.h"
+#include  "main.h"
 
 static const char *TAG = "MAIN";
+TaskHandle_t physical_led_task_handle = NULL;
+TaskHandle_t render_engine_task_handle = NULL;
+// Visual LED controller
+LEDController* led_controller = NULL;
 
 void app_main(void) {
     ESP_LOGI(TAG, "Starting Simple LED Handler Demo");
@@ -22,7 +28,10 @@ void app_main(void) {
     
     // Initialize LED handler
     led_handler_init();
-    vTaskDelay(pdMS_TO_TICKS(1000));
+    xTaskCreate(led_update_task, "physical_led_update", 1024*4, NULL, 5, &physical_led_task_handle);
+    vTaskDelay(pdMS_TO_TICKS(10));
+    xTaskCreate(led_controller_task, "render_engine", 1024*4, NULL, 4, &render_engine_task_handle);
+
     
     // Show available patterns
     led_show_all_patterns();
@@ -78,4 +87,8 @@ void app_main(void) {
     led_clear_all();
     
     
+}
+// Get current time in milliseconds
+uint32_t get_current_time_ms(void) {
+    return esp_timer_get_time() / 1000;
 }
